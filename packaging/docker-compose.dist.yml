@@ -1,0 +1,48 @@
+# Distribution compose shipped INSIDE TickTalk.app (copied by make-release-app.sh
+# to Contents/Resources/docker-compose.yml, where DockerBackendController's
+# findComposeFile() picks it up via Bundle.main — no source repo required).
+#
+# Differs from the dev docker-compose.yml at the repo root in two ways:
+#   - NO `build:` key. A shipped app has no repo/Dockerfile beside it; the image
+#     arrives only via `docker load` of the bundled engine-image.tar.gz, never a
+#     build. (The dev compose keeps `build:` for the build-from-source flow.)
+#   - A top-level `name: ticktalk`. The app runs `docker compose` with its
+#     working directory set to Contents/Resources, so without this the project
+#     name would default to "Resources" — giving unstable container/volume names
+#     and an unreliable `compose stop` on quit. Pinning it keeps them stable
+#     (ticktalk-desk-server-1, ticktalk_tradingagents_data).
+# Only `desk-server` is included — the app never starts the other services.
+name: ticktalk
+
+services:
+  desk-server:
+    image: ticktalk-engine:dev
+    entrypoint: ["desk-server"]
+    environment:
+      DESK_SERVER_HOST: 0.0.0.0
+      DESK_SERVER_PORT: "8765"
+      DESK_BASE_DIR: /home/appuser/.tradingagents
+      TRADINGAGENTS_NO_DOTENV: "1"
+      # Provider/data keys are injected by the macOS app (from the Keychain) per
+      # run; unset here they interpolate to empty and are ignored.
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      GOOGLE_API_KEY: ${GOOGLE_API_KEY:-}
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
+      DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:-}
+      XAI_API_KEY: ${XAI_API_KEY:-}
+      FRED_API_KEY: ${FRED_API_KEY:-}
+      ALPHA_VANTAGE_API_KEY: ${ALPHA_VANTAGE_API_KEY:-}
+    ports:
+      - "127.0.0.1:8765:8765"
+    volumes:
+      - tradingagents_data:/home/appuser/.tradingagents
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8765/health')"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+      start_period: 10s
+
+volumes:
+  tradingagents_data:

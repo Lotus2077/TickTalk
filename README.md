@@ -16,6 +16,16 @@
 
 ---
 
+## Download & install (Apple Silicon)
+
+1. Download the latest **`TickTalk-*-arm64.dmg`** from [**Releases**](https://github.com/Lotus2077/TickTalk/releases).
+2. Open the `.dmg` and drag **TickTalk** into **Applications**.
+3. **First open — one-time Gatekeeper step.** This build isn't notarized, so double-clicking shows *"Apple could not verify…"*. Either **right-click TickTalk.app → Open → Open**, or run `xattr -cr /Applications/TickTalk.app` in Terminal once.
+4. Install and start **[Docker Desktop](https://www.docker.com/products/docker-desktop/)** — the only prerequisite.
+5. On first launch TickTalk loads its bundled engine image into Docker (a one-time ~30–60s step, no download), then add your provider API key in **Settings** and run.
+
+> **Apple Silicon (arm64) only** for this release — the engine image is bundled arm64-native. On **Intel** Macs, build from source (below).
+
 ## What is TickTalk?
 
 **TickTalk** is a native macOS app (SwiftUI, macOS 14+) that turns the [TradingAgents](https://github.com/TauricResearch/TradingAgents) multi-agent engine into a **persistent research workspace**.
@@ -59,7 +69,9 @@ It drives the engine **without modifying the agent graph** — every analysis is
 - **Docker Desktop** — runs the engine backend container
 - An API key for at least one LLM provider (OpenAI, Anthropic, Google, xAI, DeepSeek, OpenRouter, or any OpenAI-compatible endpoint)
 
-## Quick start
+## Build from source (Intel / developers)
+
+The download above is the easiest path on Apple Silicon. To build from source — required on **Intel** Macs, and the usual flow for development:
 
 ```bash
 git clone https://github.com/Lotus2077/TickTalk.git

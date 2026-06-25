@@ -442,8 +442,22 @@ Python adapter/server unit tests (run on any interpreter):
   checked against a real listing and carry the engine's canonical name.
 - A/B compare-across-configs (needs the app-owned run store).
 - Simulated/true token-by-token streaming in the Theater (engine `stream_mode=messages`).
-- Xcode app target → Developer ID signing, notarization, Sparkle auto-update,
-  and bundling the engine image for first-launch `docker load`.
+- Developer ID signing, notarization, and Sparkle auto-update (an Xcode app
+  target). The current `.dmg` release is **ad-hoc / unsigned** (users bypass
+  Gatekeeper once via right-click → Open).
+
+## 15. Packaging the `.dmg`
+
+The shipped release is a self-contained `.app` inside a `.dmg` — no source repo
+needed at runtime. `packaging/build-and-save-image.sh` saves the engine image to
+`engine-image.tar.gz`; `macos/TickTalk/scripts/make-release-app.sh` does a
+release build and bundles that tar plus `packaging/docker-compose.dist.yml` (an
+`image:`-only compose, no `build:`, `name: ticktalk`) into
+`Contents/Resources/`, then ad-hoc signs **last**; `packaging/make-dmg.sh` wraps
+the result with `hdiutil`. On first launch `DockerBackendController` finds the
+bundled compose + tar via `Bundle.main`, `docker load`s the image (~30–60s, one
+time), and `compose up`s the backend. Apple Silicon (arm64) only for now; Intel
+builds from source.
 
 ---
 
