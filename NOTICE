@@ -1,0 +1,23 @@
+TickTalk
+Copyright 2026 Lotus Xu
+
+This product includes software derived from TradingAgents
+(https://github.com/TauricResearch/TradingAgents), Copyright TauricResearch,
+licensed under the Apache License, Version 2.0.
+
+  - The TradingAgents engine (the `tradingagents` and `cli` packages, and the
+    architecture diagrams under `assets/`) is included from TradingAgents v0.3.0.
+    The `cli` package is unchanged. Two engine files were modified and carry
+    in-file change notices: `tradingagents/graph/trading_graph.py` (added the
+    public host APIs `stream_run`, `resolve_pending_entries`, and
+    `resolve_all_pending`, plus a `try/except` around `reflect_on_final_decision`
+    so a transient reflection failure leaves the entry pending instead of
+    aborting the run) and `tradingagents/__init__.py` (added a
+    `TRADINGAGENTS_NO_DOTENV` import guard).
+
+  - The `desk_adapter` and `desk_server` backend, the `macos/TickTalk` native
+    macOS app, and the "TickTalk" name and branding are additions, Copyright
+    2026 Lotus Xu.
+
+All additions and modifications are likewise licensed under the Apache License,
+Version 2.0; see the LICENSE file for the full text.
