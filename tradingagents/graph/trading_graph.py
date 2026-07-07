@@ -3,8 +3,10 @@
 # Modified by the TickTalk project from TradingAgents v0.3.0 (Copyright
 # TauricResearch, Apache-2.0): wrapped reflect_on_final_decision in a try/except
 # so a transient reflection failure leaves the entry pending instead of aborting
-# the run, and added the public host APIs resolve_pending_entries(),
-# resolve_all_pending(), and stream_run(). See NOTICE.
+# the run, added the public host APIs resolve_pending_entries(),
+# resolve_all_pending(), and stream_run(), and guarded the stream_run epilogue
+# on final_trade_decision key presence so an early-terminated stream skips the
+# log/store side effects instead of raising KeyError. See NOTICE.
 
 import json
 import logging
@@ -459,12 +461,18 @@ class TradingAgentsGraph:
         self.curr_state = final_state
 
         # Side effects the raw stream path would otherwise skip (see _run_graph).
-        self._log_state(trade_date, final_state)
-        self.memory_log.store_decision(
-            ticker=company_name,
-            trade_date=trade_date,
-            final_trade_decision=final_state["final_trade_decision"],
-        )
+        # Guarded on key PRESENCE (not truthiness) for exact parity with
+        # _run_graph: a stream that ended without reaching a decision (nothing
+        # yielded, or the graph terminated early) skips the epilogue rather than
+        # raising KeyError out of the generator's final ``next()``, while a
+        # completed run with an empty decision still logs, as propagate() does.
+        if "final_trade_decision" in final_state:
+            self._log_state(trade_date, final_state)
+            self.memory_log.store_decision(
+                ticker=company_name,
+                trade_date=trade_date,
+                final_trade_decision=final_state["final_trade_decision"],
+            )
 
     def _run_graph(self, company_name, trade_date, asset_type: str = "stock"):
         """Execute the graph and write the resulting state to disk and memory log."""

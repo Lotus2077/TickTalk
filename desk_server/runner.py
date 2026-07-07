@@ -106,9 +106,11 @@ def run_blocking(handle: RunHandle, run_config: dict) -> None:
         # Inject the provider/data keys the app supplied (from Keychain) into the
         # process env so the engine's clients (which read os.getenv) pick them up.
         # Loopback-only; never written to disk. The prior values are restored in
-        # ``finally`` so a run's keys never leak into a later /test or a run that
-        # omits them. (Runs are serialized on a single-worker executor — see
-        # desk_server/app.py — so two runs never race on os.environ.)
+        # ``finally`` so a run's keys never leak into a run that omits them.
+        # Thread-safety: runs are serialized on a single-worker executor and
+        # /test probes run in a subprocess with their own env copy (see
+        # desk_server/app.py), so this worker thread is the ONLY writer of
+        # os.environ — no lock is needed.
         for env_name, value in (run_config.get("keys") or {}).items():
             if value:
                 saved_env[env_name] = os.environ.get(env_name)

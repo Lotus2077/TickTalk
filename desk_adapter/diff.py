@@ -17,6 +17,7 @@ message objects are read via ``.type`` / ``.content`` / ``.tool_calls`` /
 from __future__ import annotations
 
 import ast
+import hashlib
 import re
 from typing import Any
 
@@ -339,12 +340,15 @@ class SnapshotDiffer:
         mid = getattr(msg, "id", None)
         if mid is not None:
             return mid
-        # id-less fakes/messages: best-effort stable key
+        # id-less fakes/messages: best-effort stable key. sha256 (not built-in
+        # hash()) so the key is deterministic across processes and effectively
+        # collision-free, without holding full message bodies in the seen-set.
+        content = extract_content_string(getattr(msg, "content", None)) or ""
         return (
             "anon",
             _msg_type(msg),
             getattr(msg, "tool_call_id", None),
-            hash(extract_content_string(getattr(msg, "content", None)) or ""),
+            hashlib.sha256(content.encode("utf-8", "replace")).hexdigest(),
         )
 
     # -- report sections --

@@ -40,7 +40,10 @@ _runs: dict[str, RunHandle] = {}
 # shared ``os.environ`` provider keys, and (b) keeps multi-minute runs off the
 # default pool that the short /search, /prices, /test endpoints use via
 # ``asyncio.to_thread`` — so the UI stays responsive while a run is in flight.
-# (A queued run sits at "warming" until the active one finishes.)
+# (A queued run sits at "warming" until the active one finishes.) /test never
+# touches this process's env at all — its probe runs in a subprocess with the
+# candidate keys in the child env only (see test_model) — so the run worker is
+# the sole writer of os.environ and no cross-thread env race exists.
 _RUN_EXECUTOR = ThreadPoolExecutor(max_workers=1, thread_name_prefix="desk-run")
 
 # Evict a finished run from ``_runs`` this long after it completes, so an SSE
@@ -89,6 +92,7 @@ async def reports(ticker: str | None = None, date: str | None = None) -> dict:
     ``ticker`` (or nothing): lists available runs as {ticker, date, rating}.
     """
     import json as _json
+    import re as _re
     from pathlib import Path
 
     from tradingagents.agents.utils.rating import parse_rating
@@ -98,6 +102,14 @@ async def reports(ticker: str | None = None, date: str | None = None) -> dict:
     results_dir = Path(DEFAULT_CONFIG["results_dir"])
 
     if ticker and date:
+        # ``date`` is interpolated into a filename: accept only the date shape
+        # runs can produce, so path metacharacters ("../", "/") can't traverse
+        # out of results_dir. Month/day are 1-2 digits because the CLI's
+        # strptime("%Y-%m-%d") accepts unpadded dates and writes them into the
+        # filename. (``ticker`` is validated by safe_ticker_component, which
+        # raises on any path-unsafe value.)
+        if not _re.fullmatch(r"[0-9]{4}-[0-9]{1,2}-[0-9]{1,2}", date):
+            raise HTTPException(status_code=400, detail="invalid date")
         path = results_dir / safe_ticker_component(ticker) / "TradingAgentsStrategy_logs" / f"full_states_log_{date}.json"
         if not path.exists():
             raise HTTPException(status_code=404, detail="report not found")
@@ -139,7 +151,7 @@ async def search(q: str = "") -> dict:
         # Yahoo rejects the default urllib UA; present a browser-like one.
         req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0 (Macintosh) TickTalk"})
         with urllib.request.urlopen(req, timeout=8) as resp:
-            payload = _json.loads(resp.read())
+            payload = _json.load(resp)
         out = []
         for quote in payload.get("quotes", []):
             symbol = quote.get("symbol")
@@ -196,7 +208,7 @@ async def openrouter_models() -> dict:
             "https://openrouter.ai/api/v1/models", headers={"User-Agent": "TickTalk"}
         )
         with urllib.request.urlopen(req, timeout=12) as resp:
-            payload = _json.loads(resp.read())
+            payload = _json.load(resp)
         out = []
         for m in payload.get("data", []):
             mid = m.get("id")
@@ -224,22 +236,40 @@ async def test_model(request: Request) -> dict:
     keys = {k: v for k, v in (body.get("keys") or {}).items() if v}
 
     def _ping():
-        from tradingagents.llm_clients import create_llm_client
+        import subprocess
+        import sys
 
-        # Inject the supplied keys only for this check, then restore them — so a
-        # /test never leaves a key in the process env for a later run/test.
-        saved = {k: os.environ.get(k) for k in keys}
+        # Probe in a short-lived subprocess with the candidate keys in the CHILD
+        # env only. This process's os.environ is never touched, so a /test can
+        # never race an active run's provider keys (runs are serialized on
+        # _RUN_EXECUTOR, making the run worker the sole env writer) and a
+        # half-typed key from the Settings field can never bleed into a run
+        # mid-flight. A lock would instead block /test for the whole multi-minute
+        # run — this stays correct AND non-blocking.
+        script = (
+            "import sys\n"
+            "from tradingagents.llm_clients import create_llm_client\n"
+            "client = create_llm_client(provider=sys.argv[1], model=sys.argv[2],"
+            " base_url=sys.argv[3] or None)\n"
+            "client.get_llm().invoke('Reply with: OK')\n"
+        )
         try:
-            os.environ.update(keys)
-            client = create_llm_client(provider=provider, model=model, base_url=base_url)
-            client.get_llm().invoke("Reply with: OK")
-            return True
-        finally:
-            for k, prior in saved.items():
-                if prior is None:
-                    os.environ.pop(k, None)
-                else:
-                    os.environ[k] = prior
+            # 50s: under the app's 60s request timeout, so a hung provider
+            # surfaces as this structured error, not a client-side cutoff.
+            proc = subprocess.run(  # noqa: S603 - fixed argv, no shell
+                [sys.executable, "-c", script, provider, model, base_url or ""],
+                env={**os.environ, **keys},
+                capture_output=True,
+                text=True,
+                timeout=50,
+            )
+        except subprocess.TimeoutExpired as exc:
+            # str(TimeoutExpired) leads with the argv repr; raise a readable one.
+            raise RuntimeError("model probe timed out after 50s") from exc
+        if proc.returncode != 0:
+            tail = (proc.stderr or proc.stdout or "").strip().splitlines()
+            raise RuntimeError(tail[-1] if tail else f"probe exited {proc.returncode}")
+        return True
 
     try:
         await asyncio.to_thread(_ping)
@@ -262,7 +292,7 @@ async def test_fred(request: Request) -> dict:
         query = urllib.parse.urlencode({"series_id": "GDP", "api_key": key, "file_type": "json"})
         url = f"https://api.stlouisfed.org/fred/series?{query}"
         with urllib.request.urlopen(url, timeout=10) as resp:
-            _json.loads(resp.read())
+            _json.load(resp)
         return True
 
     if not key:
